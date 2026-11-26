@@ -54,7 +54,7 @@ def _exchange(settings: Settings, data: dict) -> dict:
 def refresh(settings: Settings, store: TokenStore) -> dict:
     tokens = store.load()
     if not tokens or not tokens.get("refresh_token"):
-        raise AuthError("No refresh token stored. Run `whoop-mcp auth` first.")
+        raise AuthError("No WHOOP refresh token stored. Reconnect with whoop_connect_link or `whoop-mcp auth`.")
     payload = _exchange(
         settings,
         {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "scope": "offline"},
@@ -65,23 +65,16 @@ def refresh(settings: Settings, store: TokenStore) -> dict:
 def get_access_token(settings: Settings, store: TokenStore) -> str:
     tokens = store.load()
     if not tokens:
-        raise AuthError("Not authorized with WHOOP. Run `whoop-mcp auth` in a terminal first.")
+        raise AuthError("Not connected to WHOOP yet. Use the whoop_connect_link tool (phone) or run `whoop-mcp auth` (computer).")
     if time.time() >= tokens.get("expires_at", 0):
         tokens = refresh(settings, store)
     return tokens["access_token"]
 
 
-def run_auth_flow(settings: Settings, store: TokenStore) -> None:
-    """Open the browser, wait for the redirect on localhost, store tokens."""
+def build_auth_url(settings: Settings, state: str) -> str:
     if not settings.client_id or not settings.client_secret:
         raise AuthError("Set WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET (see .env.example).")
-
-    redirect = urllib.parse.urlparse(settings.redirect_uri)
-    if redirect.hostname not in ("localhost", "127.0.0.1"):
-        raise AuthError("WHOOP_REDIRECT_URI must point to localhost for the local auth flow.")
-
-    state = secrets.token_urlsafe(16)
-    url = AUTH_URL + "?" + urllib.parse.urlencode(
+    return AUTH_URL + "?" + urllib.parse.urlencode(
         {
             "client_id": settings.client_id,
             "redirect_uri": settings.redirect_uri,
@@ -90,6 +83,23 @@ def run_auth_flow(settings: Settings, store: TokenStore) -> None:
             "state": state,
         }
     )
+
+
+def exchange_code(settings: Settings, store: TokenStore, code: str) -> None:
+    payload = _exchange(
+        settings, {"grant_type": "authorization_code", "code": code, "redirect_uri": settings.redirect_uri}
+    )
+    store.save(payload)
+
+
+def run_auth_flow(settings: Settings, store: TokenStore) -> None:
+    """Local mode: open the browser, wait for the redirect on localhost, store tokens."""
+    redirect = urllib.parse.urlparse(settings.redirect_uri)
+    if redirect.hostname not in ("localhost", "127.0.0.1"):
+        raise AuthError("WHOOP_REDIRECT_URI must point to localhost for the local auth flow.")
+
+    state = secrets.token_urlsafe(16)
+    url = build_auth_url(settings, state)
     result: dict = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -123,10 +133,5 @@ def run_auth_flow(settings: Settings, store: TokenStore) -> None:
         raise AuthError(f"Authorization failed: {result.get('error')}")
     if result.get("state") != state:
         raise AuthError("State mismatch in OAuth callback; aborting.")
-
-    payload = _exchange(
-        settings,
-        {"grant_type": "authorization_code", "code": result["code"], "redirect_uri": settings.redirect_uri},
-    )
-    store.save(payload)
+    exchange_code(settings, store, result["code"])
     print(f"Tokens guardados em {store.path}")

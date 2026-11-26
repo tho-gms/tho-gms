@@ -48,6 +48,10 @@ class Settings:
     client_secret: str
     redirect_uri: str
     home: Path
+    timezone: str = "Europe/Lisbon"
+    # Remote mode only: secret that goes in the MCP URL, and the server's public https URL.
+    access_key: str = ""
+    public_url: str = ""
 
     @property
     def token_file(self) -> Path:
@@ -63,9 +67,17 @@ def load_settings() -> Settings:
     home = Path(os.environ.get("WHOOP_MCP_HOME", "~/.whoop-mcp")).expanduser()
     _load_dotenv(home / ".env")
     home.mkdir(parents=True, exist_ok=True)
+    public_url = os.environ.get("PUBLIC_URL", "")
+    if not public_url and os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
+        public_url = "https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"]
+    public_url = public_url.rstrip("/")
+    default_redirect = f"{public_url}/whoop/callback" if public_url else "http://localhost:8765/callback"
     return Settings(
         client_id=os.environ.get("WHOOP_CLIENT_ID", ""),
         client_secret=os.environ.get("WHOOP_CLIENT_SECRET", ""),
-        redirect_uri=os.environ.get("WHOOP_REDIRECT_URI", "http://localhost:8765/callback"),
+        redirect_uri=os.environ.get("WHOOP_REDIRECT_URI", default_redirect),
         home=home,
+        timezone=os.environ.get("TIMEZONE", "Europe/Lisbon"),
+        access_key=os.environ.get("ACCESS_KEY", ""),
+        public_url=public_url,
     )

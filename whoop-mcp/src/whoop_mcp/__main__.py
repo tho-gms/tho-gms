@@ -1,4 +1,4 @@
-"""CLI: `whoop-mcp auth` to connect WHOOP, `whoop-mcp serve` to run the MCP server."""
+"""CLI: `auth` connects WHOOP locally, `serve` runs over stdio, `http` runs the remote server."""
 
 from __future__ import annotations
 
@@ -20,8 +20,12 @@ def main() -> None:
         from .server import run
 
         run()
+    elif cmd == "http":
+        from .remote import run
+
+        run()
     else:
-        sys.exit("Uso: whoop-mcp [auth|serve]")
+        sys.exit("Uso: whoop-mcp [auth|serve|http]")
 
 
 if __name__ == "__main__":

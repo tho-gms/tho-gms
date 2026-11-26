@@ -137,3 +137,9 @@ def test_calibrate_suggests_correction(storage):
     assert r["tdee_from_weight_trend_kcal"] == 2885
     assert r["suggested_correction_pct"] == pytest.approx(-3.8)
     assert storage.get_profile()["expenditure_correction_pct"] == pytest.approx(-3.8)
+
+
+def test_today_uses_configured_timezone(storage):
+    # 23:30 UTC in July is already the next day in Lisbon (UTC+1)
+    svc = Service(FakeClient([]), storage, now=lambda: datetime(2026, 7, 1, 23, 30, tzinfo=timezone.utc))
+    assert svc.today() == date(2026, 7, 2)

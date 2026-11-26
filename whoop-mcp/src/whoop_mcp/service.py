@@ -2,26 +2,28 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo
 
 from . import energy as E
 from .storage import Storage
 
 
 class Service:
-    def __init__(self, client, storage: Storage, now=None):
+    def __init__(self, client, storage: Storage, now=None, tz: tzinfo | str = "Europe/Lisbon"):
         self.client = client
         self.storage = storage
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self.tz = ZoneInfo(tz) if isinstance(tz, str) else tz
 
     # helpers ------------------------------------------------------------
     def today(self) -> date:
-        return self._now().astimezone().date()
+        return self._now().astimezone(self.tz).date()
 
     def _window(self, start: date, end: date) -> tuple[datetime, datetime]:
         # Pad by a day on each side: cycles start at wake-up and timezones shift the edges.
-        lo = datetime.combine(start - timedelta(days=1), time.min).astimezone()
-        hi = datetime.combine(end + timedelta(days=2), time.min).astimezone()
+        lo = datetime.combine(start - timedelta(days=1), time.min, tzinfo=self.tz)
+        hi = datetime.combine(end + timedelta(days=2), time.min, tzinfo=self.tz)
         return lo, hi
 
     def body(self) -> dict:

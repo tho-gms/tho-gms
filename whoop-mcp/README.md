@@ -4,6 +4,57 @@ Servidor MCP que calcula o teu défice calórico diário: o que gastas (WHOOP) m
 
 A WHOOP não tem dados de nutrição na API. A comida fica numa base de dados SQLite no teu computador. Basta dizer ao Claude o que comeste ("almocei um prato de frango com arroz e salada"); ele estima as calorias e regista.
 
+## Usar no telemóvel
+
+A app Claude no telemóvel liga-se a servidores MCP pela internet, por isso o servidor tem de estar online. Estas instruções usam o [Railway](https://railway.com) (plano Hobby, cerca de 5 $/mês), porque tem disco persistente e faz-se tudo no browser do telemóvel. O Dockerfile funciona em qualquer outro serviço que tenha disco persistente.
+
+Precisas de três coisas: o servidor no Railway, uma app no painel de programador da WHOOP e o conector no Claude.
+
+### 1. Pôr o servidor online (Railway)
+
+1. Entra em railway.com com a tua conta GitHub.
+2. **New Project → Deploy from GitHub repo →** escolhe `tho-gms/tho-gms`.
+3. No serviço criado, em **Settings**:
+   - **Source → Root Directory:** `whoop-mcp`
+   - **Source → Branch:** o ramo onde está este código (ou `main`, depois de o juntares)
+   - **Networking → Generate Domain.** Fica com um endereço tipo `whoop-mcp-production.up.railway.app`. Guarda-o.
+4. Adiciona um volume ao serviço (no projeto: **Create → Volume**) com mount path `/data`. É aqui que ficam os tokens da WHOOP e o teu registo de comida. Sem o volume, perdes tudo a cada atualização.
+
+### 2. Criar a app na WHOOP
+
+1. Entra em developer-dashboard.whoop.com com a tua conta WHOOP.
+2. Cria uma app com os scopes `read:profile`, `read:body_measurement`, `read:cycles`, `read:recovery`, `read:sleep`, `read:workout` e `offline`.
+3. Redirect URI: `https://O-TEU-DOMINIO/whoop/callback` (o domínio do passo 1).
+4. Copia o Client ID e o Client Secret.
+
+### 3. Variáveis no Railway
+
+Em **Variables**, adiciona:
+
+| Variável | Valor |
+|---|---|
+| `WHOOP_CLIENT_ID` | da WHOOP |
+| `WHOOP_CLIENT_SECRET` | da WHOOP |
+| `ACCESS_KEY` | uma chave aleatória com 32+ letras e números, sem símbolos. Usa o gerador de palavras-passe do telemóvel. |
+
+O Railway reinicia o servidor sozinho. O endereço público é detetado pela variável `RAILWAY_PUBLIC_DOMAIN`, que o Railway já define. Noutro serviço, define `PUBLIC_URL=https://o-teu-dominio`. O fuso horário é `Europe/Lisbon` por omissão; muda com `TIMEZONE`.
+
+### 4. Ligar ao Claude
+
+1. No browser, abre https://claude.ai/customize/connectors.
+2. **Add custom connector.** Nome: `WHOOP`. URL: `https://O-TEU-DOMINIO/A-TUA-ACCESS_KEY/mcp`
+3. O conector aparece também na app do telemóvel.
+
+A `ACCESS_KEY` no URL é a única proteção do servidor. Quem tiver o URL completo vê e altera os teus dados. Não o partilhes. Se o perderes, muda a `ACCESS_KEY` no Railway e atualiza o conector.
+
+### 5. Primeira conversa no telemóvel
+
+> Liga a minha WHOOP.
+
+O Claude dá-te um link. Abres, fazes login na WHOOP, aceitas, e está feito. Depois:
+
+> Configura o meu perfil: homem, nascido a 1999-05-14, trabalho de secretária, quero um défice de 500 kcal.
+
 ## Como calcula
 
 **Gasto.** Para um dia completo, o gasto é o `kilojoule` do ciclo da WHOOP convertido em kcal. Esse valor já inclui o metabolismo basal, o trabalho e os treinos. Tem três ajustes:
@@ -29,6 +80,7 @@ A WHOOP não tem dados de nutrição na API. A comida fica numa base de dados SQ
 
 | Ferramenta | O que faz |
 |---|---|
+| `whoop_connect_link` | Link para ligar (ou voltar a ligar) a conta WHOOP |
 | `whoop_status` | Testa a ligação e mostra perfil e medidas da WHOOP |
 | `set_profile` | Sexo, data de nascimento, altura, trabalho, meta de défice, correção |
 | `log_food` / `get_food_log` / `delete_food` | Registo de comida (kcal e macros) |
@@ -37,7 +89,9 @@ A WHOOP não tem dados de nutrição na API. A comida fica numa base de dados SQ
 | `get_deficit_summary` | Vários dias: défice por dia, totais, médias, perda de gordura esperada e tendência real do peso |
 | `calibrate_metabolism` | Compara a WHOOP com o teu peso real e sugere (ou aplica) a correção |
 
-## Instalação
+## Instalação no computador
+
+Alternativa ao telemóvel: corre no teu computador e liga-se ao Claude Code ou ao Claude Desktop.
 
 ### 1. Criar uma app na WHOOP
 
@@ -92,11 +146,9 @@ claude mcp add whoop -- /caminho/para/whoop-mcp/.venv/bin/whoop-mcp serve
 }
 ```
 
-### 6. Primeira conversa
+## Exemplos
 
-> Configura o meu perfil: homem, nascido a 1999-05-14, trabalho de secretária, quero um défice de 500 kcal.
-
-Depois, no dia a dia:
+No dia a dia:
 
 > Ao pequeno-almoço comi duas torradas com manteiga e um galão.
 > Qual é o meu défice hoje? Quanto posso ainda comer ao jantar?

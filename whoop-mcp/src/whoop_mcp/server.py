@@ -1,13 +1,10 @@
-"""MCP tools. Run with `whoop-mcp serve` (stdio)."""
+"""MCP tools. `whoop-mcp serve` runs them over stdio, `whoop-mcp http` over HTTP (see remote.py)."""
 
 from __future__ import annotations
 
 from datetime import date, timedelta
 
-try:  # mcp >= 2
-    from mcp.server.mcpserver import MCPServer as FastMCP
-except ImportError:  # mcp 1.x
-    from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .auth import AuthError
 from .client import WhoopClient
@@ -16,7 +13,7 @@ from .energy import JOB_PAL, slope_per_day
 from .service import Service
 from .storage import Storage
 
-mcp = FastMCP(
+mcp = MCPServer(
     "whoop-energy",
     instructions=(
         "Tracks caloric deficit: energy burned (WHOOP) minus energy eaten (local food log). "
@@ -35,7 +32,7 @@ def service() -> Service:
     global _service
     if _service is None:
         settings = load_settings()
-        _service = Service(WhoopClient(settings), Storage(settings.db_file))
+        _service = Service(WhoopClient(settings), Storage(settings.db_file), tz=settings.timezone)
     return _service
 
 
@@ -58,6 +55,15 @@ def whoop_status() -> dict:
         return {"profile": s.client.profile(), "body": s.client.body_measurement(),
                 "local_profile": s.storage.get_profile()}
     return _guard(run)
+
+
+@mcp.tool()
+def whoop_connect_link() -> dict:
+    """Link to connect (or reconnect) the WHOOP account. Give it to the user to open in a browser."""
+    settings = load_settings()
+    if not settings.public_url or not settings.access_key:
+        return {"error": "Server is not running in remote mode. On a computer, run `whoop-mcp auth`."}
+    return {"url": f"{settings.public_url}/{settings.access_key}/whoop/login"}
 
 
 @mcp.tool()
