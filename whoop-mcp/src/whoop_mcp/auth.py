@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import secrets
 import time
@@ -20,13 +22,32 @@ class AuthError(RuntimeError):
 
 
 class TokenStore:
-    def __init__(self, path: Path):
+    """Keeps WHOOP tokens in a file (local) or in the database (`storage`, for serverless hosts)."""
+
+    KEY = "whoop_tokens"
+
+    def __init__(self, path: Path | None = None, storage=None):
         self.path = path
+        self.storage = storage
+
+    def _read(self) -> str | None:
+        if self.storage is not None:
+            return self.storage.kv_get(self.KEY)
+        return self.path.read_text() if self.path and self.path.is_file() else None
+
+    def _write(self, text: str) -> None:
+        if self.storage is not None:
+            self.storage.kv_set(self.KEY, text)
+            return
+        self.path.write_text(text)
+        try:
+            self.path.chmod(0o600)
+        except OSError:
+            pass
 
     def load(self) -> dict | None:
-        if not self.path.is_file():
-            return None
-        return json.loads(self.path.read_text())
+        text = self._read()
+        return json.loads(text) if text else None
 
     def save(self, payload: dict) -> dict:
         data = {
@@ -35,12 +56,29 @@ class TokenStore:
             "refresh_token": payload.get("refresh_token") or (self.load() or {}).get("refresh_token"),
             "expires_at": time.time() + int(payload.get("expires_in", 3600)) - 60,
         }
-        self.path.write_text(json.dumps(data, indent=2))
-        try:
-            self.path.chmod(0o600)
-        except OSError:
-            pass
+        self._write(json.dumps(data, indent=2))
         return data
+
+    @property
+    def location(self) -> str:
+        return "database" if self.storage is not None else str(self.path)
+
+
+def make_state(secret: str) -> str:
+    """OAuth state signed with `secret`, so no server memory is needed to check it."""
+    body = f"{int(time.time())}.{secrets.token_urlsafe(12)}"
+    sig = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{body}.{sig}"
+
+
+def check_state(secret: str, state: str, max_age: int = 600) -> bool:
+    try:
+        ts, nonce, sig = state.split(".")
+        age = time.time() - int(ts)
+    except ValueError:
+        return False
+    expected = hmac.new(secret.encode(), f"{ts}.{nonce}".encode(), hashlib.sha256).hexdigest()[:32]
+    return hmac.compare_digest(sig, expected) and 0 <= age <= max_age
 
 
 def _exchange(settings: Settings, data: dict) -> dict:
@@ -134,4 +172,4 @@ def run_auth_flow(settings: Settings, store: TokenStore) -> None:
     if result.get("state") != state:
         raise AuthError("State mismatch in OAuth callback; aborting.")
     exchange_code(settings, store, result["code"])
-    print(f"Tokens guardados em {store.path}")
+    print(f"Tokens guardados em {store.location}")

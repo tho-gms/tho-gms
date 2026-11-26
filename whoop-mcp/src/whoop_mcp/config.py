@@ -52,6 +52,8 @@ class Settings:
     # Remote mode only: secret that goes in the MCP URL, and the server's public https URL.
     access_key: str = ""
     public_url: str = ""
+    # Postgres URL. When set, food log, profile and WHOOP tokens go there instead of files.
+    database_url: str = ""
 
     @property
     def token_file(self) -> Path:
@@ -66,10 +68,17 @@ def load_settings() -> Settings:
     _load_dotenv(Path.cwd() / ".env")
     home = Path(os.environ.get("WHOOP_MCP_HOME", "~/.whoop-mcp")).expanduser()
     _load_dotenv(home / ".env")
-    home.mkdir(parents=True, exist_ok=True)
+    try:
+        home.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass  # read-only filesystem (serverless); fine when DATABASE_URL is set
     public_url = os.environ.get("PUBLIC_URL", "")
-    if not public_url and os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
-        public_url = "https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"]
+    # Hosts that announce their own domain: Vercel, Railway, Render.
+    for var in ("VERCEL_PROJECT_PRODUCTION_URL", "RAILWAY_PUBLIC_DOMAIN"):
+        if not public_url and os.environ.get(var):
+            public_url = "https://" + os.environ[var]
+    if not public_url and os.environ.get("RENDER_EXTERNAL_URL"):
+        public_url = os.environ["RENDER_EXTERNAL_URL"]
     public_url = public_url.rstrip("/")
     default_redirect = f"{public_url}/whoop/callback" if public_url else "http://localhost:8765/callback"
     return Settings(
@@ -80,4 +89,5 @@ def load_settings() -> Settings:
         timezone=os.environ.get("TIMEZONE", "Europe/Lisbon"),
         access_key=os.environ.get("ACCESS_KEY", ""),
         public_url=public_url,
+        database_url=os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL", ""),
     )

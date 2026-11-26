@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from .auth import AuthError, TokenStore, run_auth_flow
+from .auth import AuthError, run_auth_flow
 from .config import load_settings
 
 
@@ -12,8 +12,10 @@ def main() -> None:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "serve"
     if cmd == "auth":
         settings = load_settings()
+        from .server import build_service
+
         try:
-            run_auth_flow(settings, TokenStore(settings.token_file))
+            run_auth_flow(settings, build_service(settings).client.store)
         except AuthError as e:
             sys.exit(f"Erro: {e}")
     elif cmd == "serve":

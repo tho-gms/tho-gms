@@ -1,6 +1,9 @@
+import os
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+
+from whoop_mcp.auth import TokenStore, check_state, make_state
 
 from whoop_mcp import energy as E
 from whoop_mcp.service import Service
@@ -64,9 +67,20 @@ class FakeClient:
         return self._s
 
 
-@pytest.fixture
-def storage(tmp_path):
-    s = Storage(tmp_path / "t.db")
+PG_URL = os.environ.get("TEST_DATABASE_URL")
+BACKENDS = ["sqlite"] + (["postgres"] if PG_URL else [])
+
+
+@pytest.fixture(params=BACKENDS)
+def storage(request, tmp_path):
+    if request.param == "postgres":
+        import psycopg
+
+        with psycopg.connect(PG_URL, autocommit=True) as c:
+            c.execute("DROP TABLE IF EXISTS food, weight, profile, kv")
+        s = Storage(PG_URL)
+    else:
+        s = Storage(tmp_path / "t.db")
     s.update_profile(sex="male", birth_date="1996-01-01", job_activity="sedentary")
     return s
 
@@ -143,3 +157,28 @@ def test_today_uses_configured_timezone(storage):
     # 23:30 UTC in July is already the next day in Lisbon (UTC+1)
     svc = Service(FakeClient([]), storage, now=lambda: datetime(2026, 7, 1, 23, 30, tzinfo=timezone.utc))
     assert svc.today() == date(2026, 7, 2)
+
+
+def test_food_crud_and_token_store(storage):
+    d = date(2026, 11, 20)
+    a = storage.add_food(d, "a", 100.5, protein_g=10)
+    storage.add_food(d, "b", 200)
+    assert storage.food_totals(d, d)[d.isoformat()]["kcal"] == pytest.approx(300.5)
+    assert storage.delete_food(a) is True
+    assert storage.delete_food(a) is False
+    assert [f["description"] for f in storage.food_for_day(d)] == ["b"]
+
+    store = TokenStore(storage=storage)
+    assert store.load() is None
+    store.save({"access_token": "x", "refresh_token": "r1", "expires_in": 3600})
+    store.save({"access_token": "y", "expires_in": 3600})  # no new refresh token: keep the old one
+    assert store.load()["access_token"] == "y"
+    assert store.load()["refresh_token"] == "r1"
+
+
+def test_oauth_state_signature():
+    st = make_state("secret-key")
+    assert check_state("secret-key", st)
+    assert not check_state("other-key", st)
+    assert not check_state("secret-key", st[:-1] + ("0" if st[-1] != "0" else "1"))
+    assert not check_state("secret-key", "garbage")

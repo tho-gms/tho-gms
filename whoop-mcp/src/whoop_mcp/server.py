@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 from mcp.server.mcpserver import MCPServer
 
-from .auth import AuthError
+from .auth import AuthError, TokenStore
 from .client import WhoopClient
 from .config import load_settings
 from .energy import JOB_PAL, slope_per_day
@@ -32,8 +32,18 @@ def service() -> Service:
     global _service
     if _service is None:
         settings = load_settings()
-        _service = Service(WhoopClient(settings), Storage(settings.db_file), tz=settings.timezone)
+        _service = build_service(settings)
     return _service
+
+
+def build_service(settings) -> Service:
+    if settings.database_url:
+        storage = Storage(settings.database_url)
+        store = TokenStore(storage=storage)
+    else:
+        storage = Storage(settings.db_file)
+        store = TokenStore(path=settings.token_file)
+    return Service(WhoopClient(settings, store), storage, tz=settings.timezone)
 
 
 def _day(value: str | None) -> date:

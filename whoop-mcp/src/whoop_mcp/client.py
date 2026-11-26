@@ -18,9 +18,9 @@ def _iso(dt: datetime) -> str:
 
 
 class WhoopClient:
-    def __init__(self, settings: Settings, http: httpx.Client | None = None):
+    def __init__(self, settings: Settings, store: TokenStore, http: httpx.Client | None = None):
         self.settings = settings
-        self.store = TokenStore(settings.token_file)
+        self.store = store
         self.http = http or httpx.Client(base_url=config.API_BASE, timeout=30)
 
     def _get(self, path: str, params: dict | None = None) -> dict:
